@@ -7,6 +7,8 @@ import Visualizer from './components/Visualizer';
 import BeatTracker from './components/BeatTracker';
 import ExportManager from './components/ExportManager';
 import AudioFeatures from './components/AudioFeatures';
+import EnhancedVisualizer from './components/EnhancedVisualizer';
+import MusicMetrics from './components/MusicMetrics';
 
 interface AudioData {
   buffer: AudioBuffer;
@@ -208,8 +210,14 @@ function App() {
               </div>
             </div>
 
+            {/* Enhanced Visualizations */}
+            <EnhancedVisualizer analysisResults={analysisResults} />
+
             {/* Audio Features */}
             <AudioFeatures analysisResults={analysisResults} />
+
+            {/* Music Metrics */}
+            <MusicMetrics analysisResults={analysisResults} />
 
             {/* Visualizations */}
             <div className="space-y-6">

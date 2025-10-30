@@ -274,6 +274,104 @@ const AudioProcessor: React.FC<AudioProcessorProps> = ({
     };
   }, []);
 
+  const analyzeTempoVariability = useCallback((onsets: number[], estimatedBpm: number) => {
+    if (onsets.length < 4) return { variability: 0, stability: 100 };
+
+    const intervals: number[] = [];
+    for (let i = 1; i < onsets.length; i++) {
+      intervals.push(onsets[i] - onsets[i - 1]);
+    }
+
+    const avgInterval = intervals.reduce((a, b) => a + b, 0) / intervals.length;
+    const variance = intervals.reduce((sum, interval) => sum + Math.pow(interval - avgInterval, 2), 0) / intervals.length;
+    const stdDev = Math.sqrt(variance);
+    const variability = (stdDev / avgInterval) * 100;
+    const stability = Math.max(0, Math.min(100, 100 - variability));
+
+    return {
+      variability: Math.min(100, variability),
+      stability,
+      averageInterval: avgInterval
+    };
+  }, []);
+
+  const analyzeSpectralSpread = useCallback((spectrogram: Float32Array[], sampleRate: number) => {
+    const spreads: number[] = [];
+
+    spectrogram.forEach(frame => {
+      let weightedSum = 0;
+      let totalMagnitude = 0;
+      let centroid = 0;
+
+      for (let k = 0; k < frame.length; k++) {
+        const frequency = (k * sampleRate) / (2 * frame.length);
+        weightedSum += frequency * frame[k];
+        totalMagnitude += frame[k];
+      }
+
+      centroid = totalMagnitude > 0 ? weightedSum / totalMagnitude : 0;
+
+      let spreadSum = 0;
+      for (let k = 0; k < frame.length; k++) {
+        const frequency = (k * sampleRate) / (2 * frame.length);
+        const deviation = Math.pow(frequency - centroid, 2);
+        spreadSum += deviation * frame[k];
+      }
+
+      const spread = Math.sqrt(spreadSum / totalMagnitude);
+      spreads.push(spread);
+    });
+
+    const avgSpread = spreads.reduce((a, b) => a + b, 0) / spreads.length;
+    const maxSpread = Math.max(...spreads);
+    const normalizedSpread = (avgSpread / maxSpread) * 100;
+
+    return {
+      avgSpread,
+      spectralSpreadOverTime: spreads.map(s => (s / maxSpread) * 100),
+      normalizedSpread: Math.min(100, normalizedSpread)
+    };
+  }, []);
+
+  const estimateGenre = useCallback((
+    bpm: number,
+    energy: number,
+    brightness: number,
+    spectralSpread: number,
+    zeroCrossingRate: number
+  ) => {
+    const genres: Array<{ name: string; confidence: number }> = [];
+
+    if (bpm >= 120 && energy > 60 && brightness > 0.5) {
+      genres.push({ name: 'Electronic/House', confidence: 85 });
+    }
+    if (bpm >= 90 && bpm <= 110 && energy > 50) {
+      genres.push({ name: 'Hip-Hop/Rap', confidence: 75 });
+    }
+    if (bpm >= 140 && energy > 70) {
+      genres.push({ name: 'Drum & Bass/EDM', confidence: 80 });
+    }
+    if (bpm < 90 && energy < 40 && brightness < 0.4) {
+      genres.push({ name: 'Jazz/Soul', confidence: 70 });
+    }
+    if (bpm < 80 && energy < 35 && zeroCrossingRate < 0.1) {
+      genres.push({ name: 'Classical/Ambient', confidence: 75 });
+    }
+    if (spectralSpread > 60 && energy > 50) {
+      genres.push({ name: 'Rock/Alternative', confidence: 70 });
+    }
+    if (bpm >= 160 && energy > 75) {
+      genres.push({ name: 'Metal', confidence: 70 });
+    }
+
+    if (genres.length === 0) {
+      genres.push({ name: 'Pop', confidence: 50 });
+    }
+
+    genres.sort((a, b) => b.confidence - a.confidence);
+    return genres.slice(0, 3);
+  }, []);
+
   const estimateMood = useCallback((bpm: number, energy: number, loudness: number, brightness: number) => {
     let mood = 'Neutral';
     let moodScore = { energetic: 0, calm: 0, dark: 0, bright: 0 };
@@ -341,11 +439,23 @@ const AudioProcessor: React.FC<AudioProcessorProps> = ({
 
       const zcrData = analyzeZeroCrossingRate(channelData);
 
+      const tempoVariability = analyzeTempoVariability(onsets, estimatedBpm);
+
+      const spectralSpread = analyzeSpectralSpread(spectrogram, audioBuffer.sampleRate);
+
       const moodData = estimateMood(
         estimatedBpm,
         energyData.avgEnergy,
         loudnessData.avgLoudness,
         spectralData.brightness
+      );
+
+      const genreEstimates = estimateGenre(
+        estimatedBpm,
+        energyData.avgEnergy,
+        spectralData.brightness,
+        spectralSpread.normalizedSpread,
+        zcrData.avgZCR
       );
 
       const accuracy = confidence;
@@ -363,7 +473,10 @@ const AudioProcessor: React.FC<AudioProcessorProps> = ({
         spectralCentroid: spectralData,
         zeroCrossingRate: zcrData,
         mood: moodData,
-        key: spectralData.brightness > 0.5 ? 'Major (Estimated)' : 'Minor (Estimated)'
+        key: spectralData.brightness > 0.5 ? 'Major (Estimated)' : 'Minor (Estimated)',
+        tempoVariability,
+        spectralSpread,
+        genreEstimates
       };
 
       setTimeout(() => {
@@ -374,7 +487,7 @@ const AudioProcessor: React.FC<AudioProcessorProps> = ({
       console.error('Analysis error:', error);
       setIsAnalyzing(false);
     }
-  }, [audioBuffer, stft, detectOnsets, estimateBPM, trackBeats, analyzeLoudness, analyzeEnergy, analyzeSpectralCentroid, analyzeZeroCrossingRate, estimateMood, onAnalysisComplete, onAnalysisStart]);
+  }, [audioBuffer, stft, detectOnsets, estimateBPM, trackBeats, analyzeLoudness, analyzeEnergy, analyzeSpectralCentroid, analyzeZeroCrossingRate, analyzeTempoVariability, analyzeSpectralSpread, estimateMood, estimateGenre, onAnalysisComplete, onAnalysisStart]);
 
   return (
     <button
