@@ -127,32 +127,35 @@ const AudioProcessor: React.FC<AudioProcessorProps> = ({
 
   // Beat tracking
   const trackBeats = useCallback((onsets: number[], bpm: number, duration: number) => {
-    if (bpm <= 0) return onsets.slice();
+    if (bpm <= 0) return onsets.slice(); // Return onsets if BPM estimation failed
 
     const beatInterval = 60 / bpm;
     const beats: number[] = [];
 
+    // Find the best starting point based on onsets
     let bestStart = 0;
     let maxScore = 0;
 
     for (let start = 0; start < Math.min(2, duration); start += 0.1) {
       let score = 0;
       for (let beatTime = start; beatTime < duration; beatTime += beatInterval) {
-        const closestOnset = onsets.reduce((closest, onset) =>
+        // Find closest onset
+        const closestOnset = onsets.reduce((closest, onset) => 
           Math.abs(onset - beatTime) < Math.abs(closest - beatTime) ? onset : closest
         );
-
+        
         if (Math.abs(closestOnset - beatTime) < beatInterval * 0.2) {
           score++;
         }
       }
-
+      
       if (score > maxScore) {
         maxScore = score;
         bestStart = start;
       }
     }
 
+    // Generate beats from best starting point
     for (let beatTime = bestStart; beatTime < duration; beatTime += beatInterval) {
       beats.push(beatTime);
     }
@@ -160,194 +163,27 @@ const AudioProcessor: React.FC<AudioProcessorProps> = ({
     return beats;
   }, []);
 
-  const analyzeLoudness = useCallback((channelData: Float32Array, hopSize: number = 512) => {
-    const loudnessOverTime: number[] = [];
-    let totalLoudness = 0;
-    let maxLoudness = 0;
-
-    for (let i = 0; i < channelData.length; i += hopSize) {
-      let rms = 0;
-      const end = Math.min(i + hopSize, channelData.length);
-
-      for (let j = i; j < end; j++) {
-        rms += channelData[j] * channelData[j];
-      }
-
-      rms = Math.sqrt(rms / (end - i));
-      const loudness = 20 * Math.log10(rms + 1e-10);
-
-      loudnessOverTime.push(loudness);
-      totalLoudness += loudness;
-      maxLoudness = Math.max(maxLoudness, loudness);
-    }
-
-    const avgLoudness = totalLoudness / loudnessOverTime.length;
-    const normalizedLoudness = loudnessOverTime.map(l =>
-      Math.max(0, Math.min(100, ((l - avgLoudness + 40) / 40) * 100))
-    );
-
-    return {
-      loudnessOverTime: normalizedLoudness,
-      avgLoudness: Math.max(0, Math.min(100, ((avgLoudness + 40) / 40) * 100)),
-      maxLoudness,
-      dynamicRange: maxLoudness - avgLoudness
-    };
-  }, []);
-
-  const analyzeEnergy = useCallback((spectrogram: Float32Array[], channelData: Float32Array) => {
-    const energyOverTime: number[] = [];
-    let totalEnergy = 0;
-
-    spectrogram.forEach(frame => {
-      let frameEnergy = 0;
-      for (let i = 0; i < frame.length; i++) {
-        frameEnergy += frame[i] * frame[i];
-      }
-      energyOverTime.push(frameEnergy);
-      totalEnergy += frameEnergy;
-    });
-
-    const avgEnergy = totalEnergy / energyOverTime.length;
-    const maxEnergy = Math.max(...energyOverTime);
-
-    const normalizedEnergy = energyOverTime.map(e =>
-      (e / maxEnergy) * 100
-    );
-
-    const highEnergyRatio = energyOverTime.filter(e => e > avgEnergy * 1.5).length / energyOverTime.length;
-
-    return {
-      energyOverTime: normalizedEnergy,
-      avgEnergy: (avgEnergy / maxEnergy) * 100,
-      highEnergyRatio,
-      energyVariance: energyOverTime.reduce((sum, e) => sum + Math.pow(e - avgEnergy, 2), 0) / energyOverTime.length
-    };
-  }, []);
-
-  const analyzeSpectralCentroid = useCallback((spectrogram: Float32Array[], sampleRate: number) => {
-    const centroids: number[] = [];
-
-    spectrogram.forEach(frame => {
-      let weightedSum = 0;
-      let totalMagnitude = 0;
-
-      for (let k = 0; k < frame.length; k++) {
-        const frequency = (k * sampleRate) / (2 * frame.length);
-        weightedSum += frequency * frame[k];
-        totalMagnitude += frame[k];
-      }
-
-      const centroid = totalMagnitude > 0 ? weightedSum / totalMagnitude : 0;
-      centroids.push(centroid);
-    });
-
-    const avgCentroid = centroids.reduce((a, b) => a + b, 0) / centroids.length;
-
-    return {
-      avgCentroid,
-      centroidOverTime: centroids,
-      brightness: avgCentroid / (sampleRate / 2)
-    };
-  }, []);
-
-  const analyzeZeroCrossingRate = useCallback((channelData: Float32Array, hopSize: number = 512) => {
-    const zcrOverTime: number[] = [];
-
-    for (let i = 0; i < channelData.length - hopSize; i += hopSize) {
-      let crossings = 0;
-
-      for (let j = i; j < i + hopSize - 1; j++) {
-        if ((channelData[j] >= 0 && channelData[j + 1] < 0) ||
-            (channelData[j] < 0 && channelData[j + 1] >= 0)) {
-          crossings++;
-        }
-      }
-
-      zcrOverTime.push(crossings / hopSize);
-    }
-
-    const avgZCR = zcrOverTime.reduce((a, b) => a + b, 0) / zcrOverTime.length;
-
-    return {
-      avgZCR,
-      zcrOverTime
-    };
-  }, []);
-
-  const estimateMood = useCallback((bpm: number, energy: number, loudness: number, brightness: number) => {
-    let mood = 'Neutral';
-    let moodScore = { energetic: 0, calm: 0, dark: 0, bright: 0 };
-
-    if (bpm > 120 && energy > 50) {
-      moodScore.energetic = 80;
-      mood = 'Energetic';
-    } else if (bpm < 90 && energy < 40) {
-      moodScore.calm = 80;
-      mood = 'Calm';
-    } else if (bpm >= 90 && bpm <= 120) {
-      if (energy > 60) {
-        moodScore.energetic = 60;
-        mood = 'Upbeat';
-      } else if (energy < 35) {
-        moodScore.calm = 60;
-        mood = 'Relaxed';
-      }
-    }
-
-    if (brightness < 0.3 && loudness < 40) {
-      moodScore.dark = 70;
-      if (mood === 'Calm') mood = 'Melancholic';
-      else if (mood === 'Energetic') mood = 'Intense';
-    } else if (brightness > 0.6 && loudness > 60) {
-      moodScore.bright = 70;
-      if (mood === 'Calm') mood = 'Peaceful';
-      else if (mood === 'Energetic') mood = 'Euphoric';
-    }
-
-    if (bpm > 140 && energy > 70) {
-      mood = 'High Energy';
-    } else if (bpm < 70 && energy < 30) {
-      mood = 'Very Calm';
-    }
-
-    return {
-      mood,
-      moodScore,
-      valence: brightness > 0.5 ? 'Positive' : 'Neutral',
-      arousal: energy > 50 ? 'High' : energy > 30 ? 'Medium' : 'Low'
-    };
-  }, []);
-
   const analyzeAudio = useCallback(async () => {
     setIsAnalyzing(true);
     onAnalysisStart();
 
     try {
+      // Get mono channel data
       const channelData = audioBuffer.getChannelData(0);
-
+      
+      // Perform STFT
       const spectrogram = stft(channelData);
-
+      
+      // Detect onsets
       const { onsets } = detectOnsets(spectrogram);
-
+      
+      // Estimate BPM
       const { bpm: estimatedBpm, confidence } = estimateBPM(onsets);
-
+      
+      // Track beats
       const beats = trackBeats(onsets, estimatedBpm, audioBuffer.duration);
-
-      const loudnessData = analyzeLoudness(channelData);
-
-      const energyData = analyzeEnergy(spectrogram, channelData);
-
-      const spectralData = analyzeSpectralCentroid(spectrogram, audioBuffer.sampleRate);
-
-      const zcrData = analyzeZeroCrossingRate(channelData);
-
-      const moodData = estimateMood(
-        estimatedBpm,
-        energyData.avgEnergy,
-        loudnessData.avgLoudness,
-        spectralData.brightness
-      );
-
+      
+      // Calculate accuracy (if we had ground truth, we'd compare here)
       const accuracy = confidence;
 
       const results = {
@@ -357,24 +193,18 @@ const AudioProcessor: React.FC<AudioProcessorProps> = ({
         confidence,
         accuracy,
         spectrogram,
-        duration: audioBuffer.duration,
-        loudness: loudnessData,
-        energy: energyData,
-        spectralCentroid: spectralData,
-        zeroCrossingRate: zcrData,
-        mood: moodData,
-        key: spectralData.brightness > 0.5 ? 'Major (Estimated)' : 'Minor (Estimated)'
+        duration: audioBuffer.duration
       };
 
       setTimeout(() => {
         onAnalysisComplete(results);
-      }, 1000);
+      }, 1000); // Small delay for better UX
 
     } catch (error) {
       console.error('Analysis error:', error);
       setIsAnalyzing(false);
     }
-  }, [audioBuffer, stft, detectOnsets, estimateBPM, trackBeats, analyzeLoudness, analyzeEnergy, analyzeSpectralCentroid, analyzeZeroCrossingRate, estimateMood, onAnalysisComplete, onAnalysisStart]);
+  }, [audioBuffer, stft, detectOnsets, estimateBPM, trackBeats, onAnalysisComplete, onAnalysisStart]);
 
   return (
     <button

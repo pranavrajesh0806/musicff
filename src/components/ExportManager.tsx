@@ -32,19 +32,8 @@ const ExportManager: React.FC<ExportManagerProps> = ({ analysisResults, audioDat
         onsets: analysisResults.onsets || [],
         accuracy: analysisResults.accuracy
       },
-      features: {
-        mood: analysisResults.mood?.mood || 'N/A',
-        valence: analysisResults.mood?.valence || 'N/A',
-        arousal: analysisResults.mood?.arousal || 'N/A',
-        energy: analysisResults.energy?.avgEnergy || 0,
-        loudness: analysisResults.loudness?.avgLoudness || 0,
-        brightness: analysisResults.spectralCentroid?.brightness || 0,
-        complexity: analysisResults.zeroCrossingRate?.avgZCR || 0,
-        key: analysisResults.key || 'N/A',
-        dynamicRange: analysisResults.loudness?.dynamicRange || 0
-      },
       statistics: {
-        avgBeatInterval: analysisResults.beats?.length > 1 ?
+        avgBeatInterval: analysisResults.beats?.length > 1 ? 
           (analysisResults.beats[analysisResults.beats.length - 1] - analysisResults.beats[0]) / (analysisResults.beats.length - 1) : 0,
         beatsPerSecond: analysisResults.beats?.length / audioData.buffer.duration || 0
       }
@@ -76,17 +65,6 @@ Analysis Results:
 - Confidence: ${((data.analysis.confidence || 0) * 100).toFixed(1)}%
 - Total Beats Detected: ${data.analysis.totalBeats}
 - Accuracy: ${((data.analysis.accuracy || 0) * 100).toFixed(1)}%
-
-Audio Features:
-- Mood: ${data.features.mood}
-- Valence: ${data.features.valence}
-- Arousal: ${data.features.arousal}
-- Energy Level: ${data.features.energy.toFixed(1)}%
-- Loudness: ${data.features.loudness.toFixed(1)}%
-- Brightness: ${(data.features.brightness * 100).toFixed(1)}%
-- Complexity: ${(data.features.complexity * 100).toFixed(1)}%
-- Estimated Key: ${data.features.key}
-- Dynamic Range: ${data.features.dynamicRange.toFixed(1)} dB
 
 Beat Timings (seconds):
 `;
