@@ -6,6 +6,7 @@ import AudioProcessor from './components/AudioProcessor';
 import Visualizer from './components/Visualizer';
 import BeatTracker from './components/BeatTracker';
 import ExportManager from './components/ExportManager';
+import AudioFeatures from './components/AudioFeatures';
 
 interface AudioData {
   buffer: AudioBuffer;
@@ -206,6 +207,9 @@ function App() {
                 <p className="text-sm text-gray-400 mt-2">Beat detection</p>
               </div>
             </div>
+
+            {/* Audio Features */}
+            <AudioFeatures analysisResults={analysisResults} />
 
             {/* Visualizations */}
             <div className="space-y-6">
